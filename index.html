@@ -11,6 +11,8 @@
   <div id="app">
     <input v-model="origin" placeholder="出発地" />
     <input v-model="destination" placeholder="目的地" />
+    <input type="date" v-model="departureDate" />
+    <input type="time" v-model="departureTime" />
     <button @click="calculateRoute">検索</button>
     <div id="map"></div>
   </div>
@@ -24,7 +26,9 @@
           directionsService: null,
           directionsRenderer: null,
           origin: '',
-          destination: ''
+          destination: '',
+          departureDate: '',
+          departureTime: ''
         };
       },
       methods: {
@@ -39,20 +43,25 @@
         },
         calculateRoute() {
           if (!this.origin || !this.destination) return;
-          this.directionsService.route(
-            {
-              origin: this.origin,
-              destination: this.destination,
-              travelMode: google.maps.TravelMode.DRIVING
-            },
-            (result, status) => {
-              if (status === 'OK' && result) {
-                this.directionsRenderer.setDirections(result);
-              } else {
-                alert('ルートを取得できませんでした: ' + status);
-              }
+          const request = {
+            origin: this.origin,
+            destination: this.destination,
+            travelMode: google.maps.TravelMode.DRIVING
+          };
+
+          if (this.departureDate && this.departureTime) {
+            request.drivingOptions = {
+              departureTime: new Date(`${this.departureDate}T${this.departureTime}`)
+            };
+          }
+
+          this.directionsService.route(request, (result, status) => {
+            if (status === 'OK' && result) {
+              this.directionsRenderer.setDirections(result);
+            } else {
+              alert('ルートを取得できませんでした: ' + status);
             }
-          );
+          });
         }
       }
     });
@@ -62,6 +71,6 @@
       vm.initMap();
     };
   </script>
-  <script async defer src="https://maps.googleapis.com/maps/api/js?key=YOUR_API_KEY&callback=initMap"></script>
+  <script defer src="https://maps.googleapis.com/maps/api/js?key=YOUR_API_KEY&callback=initMap"></script>
 </body>
 </html>

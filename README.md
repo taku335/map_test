@@ -9,4 +9,4 @@ This project demonstrates a simple Vue.js page that displays Google Maps and all
 
 ## Usage
 
-Enter a departure point and destination, then click **検索** to see the route displayed on the map.
+Enter a departure point and destination, optionally choose a date and time, then click **検索** to see the route displayed on the map.
