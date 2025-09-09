@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <title>Google Maps Route Search</title>
+  <style>
+    #map { height: 400px; width: 100%; }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <input v-model="origin" placeholder="出発地" />
+    <input v-model="destination" placeholder="目的地" />
+    <button @click="calculateRoute">検索</button>
+    <div id="map"></div>
+  </div>
+
+  <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+  <script>
+    const app = Vue.createApp({
+      data() {
+        return {
+          map: null,
+          directionsService: null,
+          directionsRenderer: null,
+          origin: '',
+          destination: ''
+        };
+      },
+      methods: {
+        initMap() {
+          this.map = new google.maps.Map(document.getElementById('map'), {
+            center: { lat: 35.681236, lng: 139.767125 },
+            zoom: 14
+          });
+          this.directionsService = new google.maps.DirectionsService();
+          this.directionsRenderer = new google.maps.DirectionsRenderer();
+          this.directionsRenderer.setMap(this.map);
+        },
+        calculateRoute() {
+          if (!this.origin || !this.destination) return;
+          this.directionsService.route(
+            {
+              origin: this.origin,
+              destination: this.destination,
+              travelMode: google.maps.TravelMode.DRIVING
+            },
+            (result, status) => {
+              if (status === 'OK' && result) {
+                this.directionsRenderer.setDirections(result);
+              } else {
+                alert('ルートを取得できませんでした: ' + status);
+              }
+            }
+          );
+        }
+      }
+    });
+
+    const vm = app.mount('#app');
+    window.initMap = () => {
+      vm.initMap();
+    };
+  </script>
+  <script async defer src="https://maps.googleapis.com/maps/api/js?key=YOUR_API_KEY&callback=initMap"></script>
+</body>
+</html>
