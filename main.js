@@ -6,7 +6,10 @@ async function initMap() {
       '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
   }).addTo(map);
 
-  const GTFS_ZIP_URL = './kariya_gtfs.zip'; // Replace with actual URL or local path
+  // Latest GTFS data for Kariya City community bus is available via the API.
+  // Fetch the zip directly from the remote server instead of requiring a local file.
+  const GTFS_ZIP_URL =
+    'https://api.gtfs-data.jp/v2/organizations/kariyacity/feeds/communitybus/files/feed.zip?rid=next';
   try {
     const response = await fetch(GTFS_ZIP_URL);
     const blob = await response.blob();
