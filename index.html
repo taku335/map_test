@@ -2,16 +2,33 @@
 <html lang="ja">
 <head>
   <meta charset="utf-8" />
-  <title>Google Map Display</title>
+  <title>map_test</title>
   <style>
+    html,
+    body {
+      height: 100%;
+      margin: 0;
+    }
+
+    body {
+      display: flex;
+      flex-direction: column;
+    }
+
+    h1 {
+      margin: 0;
+      padding: 16px;
+      text-align: center;
+    }
+
     #map {
-      width: 100%;
-      height: 400px;
+      flex: 1;
       border: 0;
     }
   </style>
 </head>
 <body>
+  <h1>map_test</h1>
   <iframe
     id="map"
     src="https://maps.google.com/maps?q=35.681236,139.767125&z=14&output=embed"
