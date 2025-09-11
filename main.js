@@ -1,8 +1,10 @@
 async function initMap() {
-  const map = new google.maps.Map(document.getElementById('map'), {
-    center: { lat: 34.9896, lng: 137.0025 },
-    zoom: 13,
-  });
+  const map = L.map('map').setView([34.9896, 137.0025], 13);
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution:
+      '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+  }).addTo(map);
 
   const GTFS_ZIP_URL = './kariya_gtfs.zip'; // Replace with actual URL or local path
   try {
@@ -16,11 +18,10 @@ async function initMap() {
       complete: function (results) {
         results.data.forEach((stop) => {
           if (stop.stop_lat && stop.stop_lon) {
-            new google.maps.Marker({
-              position: { lat: parseFloat(stop.stop_lat), lng: parseFloat(stop.stop_lon) },
-              map,
-              title: stop.stop_name,
-            });
+            L.marker(
+              [parseFloat(stop.stop_lat), parseFloat(stop.stop_lon)],
+              { title: stop.stop_name }
+            ).addTo(map);
           }
         });
       },
@@ -30,4 +31,4 @@ async function initMap() {
   }
 }
 
-window.initMap = initMap;
+document.addEventListener('DOMContentLoaded', initMap);
