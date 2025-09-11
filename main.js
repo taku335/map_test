@@ -14,7 +14,9 @@ async function initMap() {
     const response = await fetch(GTFS_ZIP_URL);
     const blob = await response.blob();
     const zip = await JSZip.loadAsync(blob);
-    const stopsTxt = await zip.file('stops.txt').async('string');
+    // stops.txt is encoded in Shift_JIS, so decode it on the client
+    const stopsBuffer = await zip.file('stops.txt').async('arraybuffer');
+    const stopsTxt = new TextDecoder('shift_jis').decode(stopsBuffer);
     Papa.parse(stopsTxt, {
       header: true,
       skipEmptyLines: true,
