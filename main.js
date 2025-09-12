@@ -1,10 +1,8 @@
 async function initMap() {
-  const map = L.map('map').setView([34.9896, 137.0025], 13);
-
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution:
-      '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-  }).addTo(map);
+  const map = new google.maps.Map(document.getElementById('map'), {
+    center: { lat: 34.9896, lng: 137.0025 },
+    zoom: 13,
+  });
 
   // Latest GTFS data for Kariya City community bus is available via the API.
   // Fetch the zip directly from the remote server instead of requiring a local file.
@@ -23,10 +21,14 @@ async function initMap() {
       complete: function (results) {
         results.data.forEach((stop) => {
           if (stop.stop_lat && stop.stop_lon) {
-            L.marker(
-              [parseFloat(stop.stop_lat), parseFloat(stop.stop_lon)],
-              { title: stop.stop_name }
-            ).addTo(map);
+            new google.maps.Marker({
+              position: {
+                lat: parseFloat(stop.stop_lat),
+                lng: parseFloat(stop.stop_lon),
+              },
+              map,
+              title: stop.stop_name,
+            });
           }
         });
       },
@@ -36,4 +38,4 @@ async function initMap() {
   }
 }
 
-document.addEventListener('DOMContentLoaded', initMap);
+window.initMap = initMap;
