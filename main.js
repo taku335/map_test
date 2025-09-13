@@ -5,8 +5,18 @@ async function initMap() {
     maxZoom: 19,
   }).addTo(map);
 
+  const busIcon = L.icon({
+    iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+    shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+    iconSize: [50, 82],
+    iconAnchor: [25, 82],
+    popupAnchor: [1, -76],
+    shadowSize: [82, 82],
+    shadowAnchor: [25, 82],
+  });
+
   const GTFS_ZIP_URL =
-    'https://api.gtfs-data.jp/v2/organizations/kariyacity/feeds/communitybus/files/feed.zip?rid=next';
+      'https://api.gtfs-data.jp/v2/organizations/kariyacity/feeds/communitybus/files/feed.zip?rid=next';
   try {
     const response = await fetch(GTFS_ZIP_URL);
     const blob = await response.blob();
@@ -22,12 +32,14 @@ async function initMap() {
         complete: function (results) {
           results.data.forEach((stop) => {
             if (stop.stop_lat && stop.stop_lon) {
-              const lat = parseFloat(stop.stop_lat);
-              const lon = parseFloat(stop.stop_lon);
-              L.marker([lat, lon]).addTo(map).bindPopup(stop.stop_name);
-              stopMap.set(stop.stop_id, [lat, lon]);
-            }
-          });
+                const lat = parseFloat(stop.stop_lat);
+                const lon = parseFloat(stop.stop_lon);
+                L.marker([lat, lon], { icon: busIcon })
+                  .addTo(map)
+                  .bindPopup(stop.stop_name);
+                stopMap.set(stop.stop_id, [lat, lon]);
+              }
+            });
           resolve();
         },
       });
