@@ -1,8 +1,7 @@
 # Map Test
 
-Displays an interactive map and plots stops from a GTFS dataset. The stops are
-also connected in sequence based on the timetable data to visualize the bus
-routes.
+Displays an interactive map, plots stops from a GTFS dataset, and draws each
+bus route using the shape geometry provided by the feed.
 
 ## Getting Started
 
