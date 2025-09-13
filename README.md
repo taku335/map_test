@@ -1,6 +1,8 @@
 # Map Test
 
-Displays a Google Map and plots stops from a GTFS dataset. Replace `YOUR_API_KEY` in `index.html` with your Google Maps JavaScript API key.
+Displays an interactive map and plots stops from a GTFS dataset. The stops are
+also connected in sequence based on the timetable data to visualize the bus
+routes.
 
 ## Getting Started
 
