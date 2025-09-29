@@ -5,6 +5,11 @@ async function initMap() {
     maxZoom: 19,
   }).addTo(map);
 
+  const routeInfoContainer = document.getElementById('route-info');
+  if (routeInfoContainer) {
+    routeInfoContainer.textContent = '路線情報を読み込み中…';
+  }
+
   const busIcon = L.icon({
     iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
     shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
@@ -69,7 +74,7 @@ async function initMap() {
     // ----------------------
     //   Parse routes.txt
     // ----------------------
-    const routeColors = new Map();
+    const routeDetails = new Map();
     const routesBuffer = await zip.file('routes.txt').async('arraybuffer');
     const routesTxt = new TextDecoder('shift_jis').decode(routesBuffer);
     await new Promise((resolve) => {
@@ -81,7 +86,18 @@ async function initMap() {
             const color = route.route_color
               ? `#${route.route_color}`
               : 'blue';
-            routeColors.set(route.route_id, color);
+            const shortName = (route.route_short_name || '').trim();
+            const longName = (route.route_long_name || '').trim();
+            const description = (route.route_desc || '').trim();
+            const displayLabel =
+              longName || shortName || description || route.route_id;
+            routeDetails.set(route.route_id, {
+              color,
+              shortName,
+              longName,
+              description,
+              displayLabel,
+            });
           });
           resolve();
         },
@@ -94,6 +110,7 @@ async function initMap() {
     const shapesBuffer = await zip.file('shapes.txt').async('arraybuffer');
     const shapesTxt = new TextDecoder('shift_jis').decode(shapesBuffer);
     const shapePoints = new Map();
+    const activeRoutes = new Set();
     await new Promise((resolve) => {
       Papa.parse(shapesTxt, {
         header: true,
@@ -119,14 +136,113 @@ async function initMap() {
         .map((p) => [p.lat, p.lon]);
       if (latlngs.length > 1) {
         const routeId = shapeToRoute.get(shapeId);
-        const color = routeColors.get(routeId) || 'blue';
-        L.polyline(latlngs, { color, weight: 3, opacity: 0.7 }).addTo(map);
+        const details = routeDetails.get(routeId);
+        if (routeId) {
+          activeRoutes.add(routeId);
+        }
+        const color = details?.color || 'blue';
+        const polyline = L.polyline(latlngs, {
+          color,
+          weight: 3,
+          opacity: 0.7,
+        }).addTo(map);
+
+        const nameParts = [];
+        if (details?.shortName) {
+          nameParts.push(details.shortName);
+        }
+        if (details?.longName && details.longName !== details.shortName) {
+          nameParts.push(details.longName);
+        }
+        const popupLabel =
+          nameParts.length > 0
+            ? nameParts.join(' / ')
+            : details?.displayLabel || `路線ID: ${routeId || '不明'}`;
+        polyline.bindPopup(`<strong>${popupLabel}</strong>`);
       }
     });
+
+    renderRouteInfo(routeDetails, activeRoutes);
   } catch (err) {
     console.error('Failed to load GTFS data:', err);
+    if (routeInfoContainer) {
+      routeInfoContainer.textContent = 'GTFSデータの読み込みに失敗しました。';
+    }
   }
 }
 
 document.addEventListener('DOMContentLoaded', initMap);
+
+function renderRouteInfo(routeDetails, activeRoutes = new Set()) {
+  const container = document.getElementById('route-info');
+  if (!container) {
+    return;
+  }
+
+  const entries = Array.from(routeDetails.entries()).filter(([routeId]) =>
+    activeRoutes.size === 0 ? true : activeRoutes.has(routeId)
+  );
+
+  if (entries.length === 0) {
+    container.textContent = '路線情報を取得できませんでした。';
+    return;
+  }
+
+  entries.sort((a, b) =>
+    a[1].displayLabel.localeCompare(b[1].displayLabel, 'ja')
+  );
+
+  container.innerHTML = '';
+
+  const heading = document.createElement('h2');
+  heading.textContent = '運行中のコミュニティバス路線';
+  container.appendChild(heading);
+
+  const list = document.createElement('ul');
+
+  entries.forEach(([, details]) => {
+    const item = document.createElement('li');
+
+    const colorBox = document.createElement('span');
+    colorBox.className = 'route-color';
+    colorBox.style.backgroundColor = details.color;
+
+    const namesWrapper = document.createElement('span');
+    namesWrapper.className = 'route-names';
+
+    if (details.shortName) {
+      const shortEl = document.createElement('span');
+      shortEl.className = 'route-short';
+      shortEl.textContent = details.shortName;
+      namesWrapper.appendChild(shortEl);
+    }
+
+    const longLabel =
+      details.longName && details.longName !== details.shortName
+        ? details.longName
+        : details.description && !details.shortName
+        ? details.description
+        : '';
+
+    if (longLabel) {
+      const longEl = document.createElement('span');
+      longEl.className = 'route-long';
+      longEl.textContent = longLabel;
+      namesWrapper.appendChild(longEl);
+    }
+
+    if (namesWrapper.childElementCount === 0) {
+      const fallback = document.createElement('span');
+      fallback.className = 'route-long';
+      fallback.textContent = details.displayLabel;
+      namesWrapper.appendChild(fallback);
+    }
+
+    item.appendChild(colorBox);
+    item.appendChild(namesWrapper);
+    list.appendChild(item);
+  });
+
+  container.appendChild(list);
+}
 
