@@ -1,3 +1,8 @@
+const GTFS_ZIP_URL =
+  'https://api.gtfs-data.jp/v2/organizations/kariyacity/feeds/communitybus/files/feed.zip?rid=next';
+
+document.addEventListener('DOMContentLoaded', initMap);
+
 async function initMap() {
   const map = L.map('map').setView([34.9896, 137.0025], 13);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -20,148 +25,12 @@ async function initMap() {
     shadowAnchor: [25, 82],
   });
 
-  const GTFS_ZIP_URL =
-    'https://api.gtfs-data.jp/v2/organizations/kariyacity/feeds/communitybus/files/feed.zip?rid=next';
   try {
-    const response = await fetch(GTFS_ZIP_URL);
-    const blob = await response.blob();
-    const zip = await JSZip.loadAsync(blob);
-    // ----------------------
-    //   Parse stops.txt
-    // ----------------------
-    const stopsBuffer = await zip.file('stops.txt').async('arraybuffer');
-    const stopsTxt = new TextDecoder('shift_jis').decode(stopsBuffer);
-    await new Promise((resolve) => {
-      Papa.parse(stopsTxt, {
-        header: true,
-        skipEmptyLines: true,
-        complete: ({ data }) => {
-          data.forEach((stop) => {
-            if (stop.stop_lat && stop.stop_lon) {
-              const lat = parseFloat(stop.stop_lat);
-              const lon = parseFloat(stop.stop_lon);
-              L.marker([lat, lon], { icon: busIcon })
-                .addTo(map)
-                .bindPopup(stop.stop_name);
-            }
-          });
-          resolve();
-        },
-      });
-    });
-
-    // ----------------------
-    //   Parse trips.txt
-    // ----------------------
-    const shapeToRoute = new Map();
-    const tripsBuffer = await zip.file('trips.txt').async('arraybuffer');
-    const tripsTxt = new TextDecoder('shift_jis').decode(tripsBuffer);
-    await new Promise((resolve) => {
-      Papa.parse(tripsTxt, {
-        header: true,
-        skipEmptyLines: true,
-        complete: ({ data }) => {
-          data.forEach((trip) => {
-            if (trip.shape_id) {
-              shapeToRoute.set(trip.shape_id, trip.route_id);
-            }
-          });
-          resolve();
-        },
-      });
-    });
-
-    // ----------------------
-    //   Parse routes.txt
-    // ----------------------
-    const routeDetails = new Map();
-    const routesBuffer = await zip.file('routes.txt').async('arraybuffer');
-    const routesTxt = new TextDecoder('shift_jis').decode(routesBuffer);
-    await new Promise((resolve) => {
-      Papa.parse(routesTxt, {
-        header: true,
-        skipEmptyLines: true,
-        complete: ({ data }) => {
-          data.forEach((route) => {
-            const color = route.route_color
-              ? `#${route.route_color}`
-              : 'blue';
-            const shortName = (route.route_short_name || '').trim();
-            const longName = (route.route_long_name || '').trim();
-            const description = (route.route_desc || '').trim();
-            const displayLabel =
-              longName || shortName || description || route.route_id;
-            routeDetails.set(route.route_id, {
-              color,
-              shortName,
-              longName,
-              description,
-              displayLabel,
-            });
-          });
-          resolve();
-        },
-      });
-    });
-
-    // ----------------------
-    //   Parse shapes.txt
-    // ----------------------
-    const shapesBuffer = await zip.file('shapes.txt').async('arraybuffer');
-    const shapesTxt = new TextDecoder('shift_jis').decode(shapesBuffer);
-    const shapePoints = new Map();
-    const activeRoutes = new Set();
-    await new Promise((resolve) => {
-      Papa.parse(shapesTxt, {
-        header: true,
-        skipEmptyLines: true,
-        complete: ({ data }) => {
-          data.forEach((s) => {
-            const arr = shapePoints.get(s.shape_id) || [];
-            arr.push({
-              seq: parseInt(s.shape_pt_sequence, 10),
-              lat: parseFloat(s.shape_pt_lat),
-              lon: parseFloat(s.shape_pt_lon),
-            });
-            shapePoints.set(s.shape_id, arr);
-          });
-          resolve();
-        },
-      });
-    });
-
-    shapePoints.forEach((points, shapeId) => {
-      const latlngs = points
-        .sort((a, b) => a.seq - b.seq)
-        .map((p) => [p.lat, p.lon]);
-      if (latlngs.length > 1) {
-        const routeId = shapeToRoute.get(shapeId);
-        const details = routeDetails.get(routeId);
-        if (routeId) {
-          activeRoutes.add(routeId);
-        }
-        const color = details?.color || 'blue';
-        const polyline = L.polyline(latlngs, {
-          color,
-          weight: 3,
-          opacity: 0.7,
-        }).addTo(map);
-
-        const nameParts = [];
-        if (details?.shortName) {
-          nameParts.push(details.shortName);
-        }
-        if (details?.longName && details.longName !== details.shortName) {
-          nameParts.push(details.longName);
-        }
-        const popupLabel =
-          nameParts.length > 0
-            ? nameParts.join(' / ')
-            : details?.displayLabel || `路線ID: ${routeId || '不明'}`;
-        polyline.bindPopup(`<strong>${popupLabel}</strong>`);
-      }
-    });
-
+    const { stops, trips, routes, shapes } = await loadGtfsData(GTFS_ZIP_URL);
+    plotStops(map, stops, busIcon);
+    const shapeToRoute = buildShapeToRoute(trips);
+    const routeDetails = buildRouteDetails(routes);
+    const activeRoutes = drawRoutes(map, shapes, shapeToRoute, routeDetails);
     renderRouteInfo(routeDetails, activeRoutes);
   } catch (err) {
     console.error('Failed to load GTFS data:', err);
@@ -171,7 +40,160 @@ async function initMap() {
   }
 }
 
-document.addEventListener('DOMContentLoaded', initMap);
+async function loadGtfsData(url) {
+  const zip = await fetchGtfsZip(url);
+  const [stops, trips, routes, shapes] = await Promise.all([
+    parseShiftJisCsv(zip, 'stops.txt'),
+    parseShiftJisCsv(zip, 'trips.txt'),
+    parseShiftJisCsv(zip, 'routes.txt'),
+    parseShiftJisCsv(zip, 'shapes.txt'),
+  ]);
+  return { stops, trips, routes, shapes };
+}
+
+async function fetchGtfsZip(url) {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Failed to download GTFS feed: ${response.status}`);
+  }
+  const blob = await response.blob();
+  return JSZip.loadAsync(blob);
+}
+
+async function parseShiftJisCsv(zip, filename) {
+  const file = zip.file(filename);
+  if (!file) {
+    throw new Error(`${filename} がGTFSフィードに含まれていません`);
+  }
+  const buffer = await file.async('arraybuffer');
+  const text = new TextDecoder('shift_jis').decode(buffer);
+  return new Promise((resolve, reject) => {
+    Papa.parse(text, {
+      header: true,
+      skipEmptyLines: true,
+      complete: ({ data }) => resolve(data),
+      error: reject,
+    });
+  });
+}
+
+function plotStops(map, stops, icon) {
+  stops.forEach((stop) => {
+    if (!stop.stop_lat || !stop.stop_lon) {
+      return;
+    }
+    const lat = parseFloat(stop.stop_lat);
+    const lon = parseFloat(stop.stop_lon);
+    if (Number.isNaN(lat) || Number.isNaN(lon)) {
+      return;
+    }
+    L.marker([lat, lon], { icon })
+      .addTo(map)
+      .bindPopup(stop.stop_name || '停留所名未設定');
+  });
+}
+
+function buildShapeToRoute(trips) {
+  const mapping = new Map();
+  trips.forEach((trip) => {
+    if (trip.shape_id && trip.route_id && !mapping.has(trip.shape_id)) {
+      mapping.set(trip.shape_id, trip.route_id);
+    }
+  });
+  return mapping;
+}
+
+function buildRouteDetails(routes) {
+  const details = new Map();
+  routes.forEach((route) => {
+    const color = route.route_color ? `#${route.route_color}` : '#0066cc';
+    const shortName = (route.route_short_name || '').trim();
+    const longName = (route.route_long_name || '').trim();
+    const description = (route.route_desc || '').trim();
+    const displayLabel =
+      longName || shortName || description || route.route_id || '不明な路線';
+    details.set(route.route_id, {
+      color,
+      shortName,
+      longName,
+      description,
+      displayLabel,
+    });
+  });
+  return details;
+}
+
+function drawRoutes(map, shapes, shapeToRoute, routeDetails) {
+  const pointsByShapeId = groupShapePointsById(shapes);
+  const activeRoutes = new Set();
+
+  pointsByShapeId.forEach((points, shapeId) => {
+    const routeId = shapeToRoute.get(shapeId);
+    if (!routeId) {
+      return;
+    }
+
+    const details = routeDetails.get(routeId);
+    if (points.length < 2) {
+      return;
+    }
+
+    const latlngs = points
+      .sort((a, b) => a.sequence - b.sequence)
+      .map(({ lat, lon }) => [lat, lon]);
+
+    const color = details?.color || '#0066cc';
+    const polyline = L.polyline(latlngs, {
+      color,
+      weight: 3,
+      opacity: 0.75,
+    }).addTo(map);
+
+    const labelParts = [];
+    if (details?.shortName) {
+      labelParts.push(details.shortName);
+    }
+    if (details?.longName && details.longName !== details.shortName) {
+      labelParts.push(details.longName);
+    }
+
+    const popupLabel =
+      labelParts.length > 0
+        ? labelParts.join(' / ')
+        : details?.displayLabel || `路線ID: ${routeId}`;
+    polyline.bindPopup(`<strong>${popupLabel}</strong>`);
+    activeRoutes.add(routeId);
+  });
+
+  return activeRoutes;
+}
+
+function groupShapePointsById(shapes) {
+  const grouped = new Map();
+  shapes.forEach((shape) => {
+    const shapeId = shape.shape_id;
+    if (!shapeId) {
+      return;
+    }
+
+    const lat = parseFloat(shape.shape_pt_lat);
+    const lon = parseFloat(shape.shape_pt_lon);
+    const sequence = parseInt(shape.shape_pt_sequence, 10);
+
+    if (
+      Number.isNaN(lat) ||
+      Number.isNaN(lon) ||
+      Number.isNaN(sequence)
+    ) {
+      return;
+    }
+
+    const points = grouped.get(shapeId) || [];
+    points.push({ lat, lon, sequence });
+    grouped.set(shapeId, points);
+  });
+  return grouped;
+}
 
 function renderRouteInfo(routeDetails, activeRoutes = new Set()) {
   const container = document.getElementById('route-info');

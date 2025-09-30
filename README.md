@@ -1,7 +1,9 @@
 # Map Test
 
 Displays an interactive map, plots stops from a GTFS dataset, and draws each
-bus route using the shape geometry provided by the feed.
+bus route using the shape geometry provided by the feed. Route metadata is
+rendered in the side panel with line colors so you can quickly identify which
+route corresponds to each polyline on the map.
 
 ## Getting Started
 
