@@ -1,7 +1,9 @@
+const CKAN_BASE_URL = 'https://data.bodik.jp';
 const CKAN_PACKAGE_SHOW_URL =
-  'https://data.bodik.jp/api/3/action/package_show?id=231002_7109030000_bus-gtfs-jp';
-const FALLBACK_GTFS_ZIP_URL =
-  'https://data.bodik.jp/dataset/c5794008-8053-42ab-99b9-ee7f6fdf9a9e/resource/90ceab55-f14f-4376-8c7a-088fcb49115e/download/20250329_bus-gtfs-jp.zip';
+  `${CKAN_BASE_URL}/api/3/action/package_show?id=231002_7109030000_bus-gtfs-jp`;
+const FALLBACK_GTFS_ZIP_URLS = [
+  `${CKAN_BASE_URL}/dataset/c5794008-8053-42ab-99b9-ee7f6fdf9a9e/resource/90ceab55-f14f-4376-8c7a-088fcb49115e/download/20250329_bus-gtfs-jp.zip`,
+];
 
 const KANAYAMA_STATION = {
   lat: 35.1432528,
@@ -11,6 +13,7 @@ const KANAYAMA_STATION = {
 const TARGET_RADIUS_METERS = 5000;
 const BUS_ROUTE_TYPE = '3';
 const NEXT_DEPARTURES_LIMIT = 10;
+const GTFS_FETCH_TIMEOUT_MS = 30000;
 
 let appContext = null;
 
@@ -47,8 +50,7 @@ async function initMap() {
   });
 
   try {
-    const gtfsZipUrl = await resolveLatestGtfsZipUrl();
-    const gtfsData = await loadGtfsData(gtfsZipUrl);
+    const { gtfsData, sourceUrl } = await loadGtfsDataWithFallback();
     const busData = filterBusData(gtfsData);
 
     const routeById = buildRouteDetails(busData.routes);
@@ -70,7 +72,10 @@ async function initMap() {
     );
 
     const shapeToRoute = buildShapeToRoute(busData.trips);
-    const activeRoutes = drawRoutes(map, busData.shapes, shapeToRoute, routeById);
+    const activeRoutes =
+      busData.shapes.length > 0
+        ? drawRoutes(map, busData.shapes, shapeToRoute, routeById)
+        : new Set();
     renderRouteInfo(ui.routeInfoList, routeById, activeRoutes);
 
     appContext = {
@@ -93,14 +98,17 @@ async function initMap() {
     initializeTabEvents(ui);
     initializeDateEvent(ui);
 
-    setGlobalStatus(
-      ui,
-      `読込完了: 停留所 ${stopsInRadius.length}件 / 路線 ${activeRoutes.size}件`
-    );
+    const routeSuffix =
+      busData.shapes.length > 0
+        ? `路線 ${activeRoutes.size}件`
+        : `路線ポリラインなし（shapes.txt未提供）`;
+    setGlobalStatus(ui, `読込完了: 停留所 ${stopsInRadius.length}件 / ${routeSuffix}`);
+    console.info('GTFS source URL:', sourceUrl);
   } catch (error) {
     console.error('Failed to initialize app:', error);
-    setGlobalStatus(ui, 'GTFSデータの読み込みに失敗しました。', true);
-    setPanelStatus(ui, '時刻表を表示できません。データ取得に失敗しました。', true);
+    const details = summarizeError(error);
+    setGlobalStatus(ui, `GTFSデータの読み込みに失敗しました: ${details}`, true);
+    setPanelStatus(ui, `時刻表を表示できません。${details}`, true);
   }
 }
 
@@ -362,33 +370,94 @@ function getDeparturesForStop(stopId, selectedDate) {
   return departures;
 }
 
-async function resolveLatestGtfsZipUrl() {
+async function loadGtfsDataWithFallback() {
+  const candidateUrls = await resolveGtfsZipCandidates();
+  const errors = [];
+
+  for (const url of candidateUrls) {
+    try {
+      const gtfsData = await loadGtfsData(url);
+      return { gtfsData, sourceUrl: url, errors };
+    } catch (error) {
+      const reason = summarizeError(error);
+      errors.push(`${url} (${reason})`);
+      console.warn('Failed to load GTFS source:', url, error);
+    }
+  }
+
+  throw new Error(`GTFS取得に失敗しました。試行先: ${errors.join(' / ')}`);
+}
+
+async function resolveGtfsZipCandidates() {
+  const candidates = [];
   try {
-    const response = await fetch(CKAN_PACKAGE_SHOW_URL);
-    if (!response.ok) {
-      throw new Error(`Failed to load package metadata: ${response.status}`);
+    const latest = await resolveLatestGtfsZipUrl();
+    if (latest) {
+      candidates.push(latest);
     }
-
-    const payload = await response.json();
-    const resources = payload?.result?.resources;
-    if (!Array.isArray(resources)) {
-      throw new Error('Invalid CKAN response: resources not found');
-    }
-
-    const zipResources = resources
-      .filter((resource) =>
-        typeof resource.url === 'string' && /\.zip(?:$|\?)/i.test(resource.url)
-      )
-      .sort((a, b) => getResourceTimestamp(b) - getResourceTimestamp(a));
-
-    if (zipResources.length === 0) {
-      throw new Error('No ZIP resource found in dataset');
-    }
-
-    return zipResources[0].url;
   } catch (error) {
-    console.warn('Failed to resolve latest GTFS URL. Using fallback URL.', error);
-    return FALLBACK_GTFS_ZIP_URL;
+    console.warn('Failed to resolve latest GTFS URL.', error);
+  }
+
+  FALLBACK_GTFS_ZIP_URLS.forEach((url) => {
+    candidates.push(url);
+  });
+
+  const unique = [];
+  const seen = new Set();
+
+  candidates.forEach((url) => {
+    if (!url || seen.has(url)) {
+      return;
+    }
+    seen.add(url);
+    unique.push(url);
+  });
+
+  return unique;
+}
+
+async function resolveLatestGtfsZipUrl() {
+  const response = await fetchWithTimeout(CKAN_PACKAGE_SHOW_URL, GTFS_FETCH_TIMEOUT_MS);
+  if (!response.ok) {
+    throw new Error(`CKAN metadata fetch failed: ${response.status}`);
+  }
+
+  const payload = await response.json();
+  const resources = payload?.result?.resources;
+  if (!Array.isArray(resources)) {
+    throw new Error('Invalid CKAN response: resources not found');
+  }
+
+  const zipResources = resources
+    .map((resource) => ({ resource, resolvedUrl: resolveResourceUrl(resource?.url) }))
+    .filter(({ resource, resolvedUrl }) => {
+      if (!resolvedUrl) {
+        return false;
+      }
+
+      const format = String(resource?.format || '').toLowerCase();
+      return /\.zip(?:$|\?)/i.test(resolvedUrl) || format === 'zip';
+    })
+    .sort((a, b) => getResourceTimestamp(b.resource) - getResourceTimestamp(a.resource));
+
+  if (zipResources.length === 0) {
+    throw new Error('No ZIP resource found in CKAN dataset');
+  }
+
+  return zipResources[0].resolvedUrl;
+}
+
+function resolveResourceUrl(url) {
+  const raw = String(url || '').trim();
+  if (!raw) {
+    return '';
+  }
+
+  try {
+    return new URL(raw, CKAN_BASE_URL).toString();
+  } catch (error) {
+    return '';
   }
 }
 
@@ -421,7 +490,7 @@ async function loadGtfsData(url) {
       parseCsvFile(zip, 'stop_times.txt'),
       parseCsvFile(zip, 'calendar.txt', { optional: true }),
       parseCsvFile(zip, 'calendar_dates.txt', { optional: true }),
-      parseCsvFile(zip, 'shapes.txt'),
+      parseCsvFile(zip, 'shapes.txt', { optional: true }),
     ]);
 
   return {
@@ -436,21 +505,41 @@ async function loadGtfsData(url) {
 }
 
 async function fetchGtfsZip(url) {
-  const response = await fetch(url);
+  const response = await fetchWithTimeout(url, GTFS_FETCH_TIMEOUT_MS);
   if (!response.ok) {
     throw new Error(`Failed to download GTFS ZIP: ${response.status}`);
   }
   const blob = await response.blob();
-  return JSZip.loadAsync(blob);
+  try {
+    return await JSZip.loadAsync(blob);
+  } catch (error) {
+    throw new Error(`Invalid GTFS ZIP: ${summarizeError(error)}`);
+  }
+}
+
+async function fetchWithTimeout(url, timeoutMs) {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { signal: controller.signal });
+  } catch (error) {
+    if (error?.name === 'AbortError') {
+      throw new Error(`Request timed out after ${timeoutMs}ms`);
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timer);
+  }
 }
 
 async function parseCsvFile(zip, filename, options = {}) {
-  const file = zip.file(filename);
+  const file = findGtfsFile(zip, filename);
   if (!file) {
     if (options.optional) {
       return [];
     }
-    throw new Error(`${filename} is missing from GTFS feed`);
+    const available = Object.keys(zip.files).slice(0, 12).join(', ');
+    throw new Error(`${filename} is missing from GTFS feed (available: ${available})`);
   }
 
   const buffer = await file.async('arraybuffer');
@@ -461,9 +550,35 @@ async function parseCsvFile(zip, filename, options = {}) {
       header: true,
       skipEmptyLines: true,
       complete: ({ data }) => resolve(data),
-      error: reject,
+      error: (error) => reject(new Error(`${filename} parse error: ${summarizeError(error)}`)),
     });
   });
+}
+
+function findGtfsFile(zip, filename) {
+  const direct = zip.file(filename);
+  if (direct) {
+    return direct;
+  }
+
+  const target = String(filename || '').toLowerCase();
+  if (!target) {
+    return null;
+  }
+
+  const files = Object.values(zip.files);
+  for (const entry of files) {
+    if (!entry || entry.dir) {
+      continue;
+    }
+
+    const basename = String(entry.name || '').split(/[\\/]/).pop();
+    if (basename && basename.toLowerCase() === target) {
+      return entry;
+    }
+  }
+
+  return null;
 }
 
 function decodeCsvText(buffer) {
@@ -473,6 +588,19 @@ function decodeCsvText(buffer) {
   } catch (error) {
     return new TextDecoder('shift_jis').decode(buffer).replace(/^\uFEFF/, '');
   }
+}
+
+function summarizeError(error) {
+  if (!error) {
+    return '不明なエラー';
+  }
+  if (typeof error === 'string') {
+    return error;
+  }
+  if (error.message) {
+    return error.message;
+  }
+  return String(error);
 }
 
 function filterBusData(data) {
