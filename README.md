@@ -21,3 +21,29 @@ GTFS静的データを利用して、名古屋市・金山駅周辺のバス停�
 1. ブラウザで `index.html` を開きます。
 2. 地図上の停留所をクリックすると、右側に時刻表が表示されます。
 3. 必要に応じて日付を変更し、「次の10件」「その日の全便」を切り替えて確認します。
+
+## Dockerで起動
+
+1. イメージをビルドして起動します。
+```bash
+docker compose up --build
+```
+2. ブラウザで `http://localhost:8080` を開きます。
+
+停止:
+```bash
+docker compose down
+```
+
+## GitHub Actionsデプロイ
+
+このリポジトリには以下のWorkflowを追加済みです。
+
+1. `Deploy to GitHub Pages`  
+`main` へのpushでGitHub Pagesへ自動デプロイします。
+2. `Publish Docker Image`  
+`main` へのpushで `ghcr.io/<owner>/<repo>:latest` にDockerイメージを自動公開します。
+
+### 初回設定
+
+1. GitHubリポジトリの `Settings > Pages > Build and deployment` で `Source` を `GitHub Actions` に設定してください。

@@ -1,0 +1,6 @@
+.git
+.github
+node_modules
+*.log
+README.md
+DESIGN_KANAYAMA_BUS_GTFS.md
