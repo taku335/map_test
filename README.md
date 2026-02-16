@@ -1,12 +1,23 @@
-# Map Test
+# 金山駅周辺バス時刻表マップ
 
-Displays an interactive map, plots stops from a GTFS dataset, and draws each
-bus route using the shape geometry provided by the feed. Route metadata is
-rendered in the side panel with line colors so you can quickly identify which
-route corresponds to each polyline on the map.
+GTFS静的データを利用して、名古屋市・金山駅周辺のバス停と路線を地図上に表示するWebアプリです。  
+停留所を選択すると、右サイドパネルで時刻表を確認できます。
 
-## Getting Started
+## 公開URL
 
-1. Open `index.html` in your browser. The application automatically fetches the
-   latest Kariya City community bus GTFS data from [GTFS Data.jp](https://gtfs-data.jp)
-   and displays the stops on the map.
+- [https://taku335.github.io/map_test/](https://taku335.github.io/map_test/)
+
+## 主な機能
+
+1. 金山駅を中心とした地図表示（半径5km）
+2. バス停マーカー表示
+3. バス路線ポリライン表示
+4. 停留所クリック時の時刻表表示
+5. 日付変更による時刻表参照
+6. 停留所名/停留所ID検索
+
+## 使い方
+
+1. ブラウザで `index.html` を開きます。
+2. 地図上の停留所をクリックすると、右側に時刻表が表示されます。
+3. 必要に応じて日付を変更し、「次の10件」「その日の全便」を切り替えて確認します。
