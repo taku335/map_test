@@ -2,12 +2,27 @@
 <html lang="ja">
 <head>
   <meta charset="utf-8" />
-  <title>map_test</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>金山駅周辺バス時刻表マップ</title>
   <style>
+    :root {
+      --bg: #f3f5f7;
+      --panel-bg: #ffffff;
+      --border: #d7dce2;
+      --text: #1f2933;
+      --muted: #617083;
+      --accent: #1259ac;
+      --accent-soft: #e8f0ff;
+      --danger: #b42318;
+    }
+
     html,
     body {
       height: 100%;
       margin: 0;
+      color: var(--text);
+      font-family: "Hiragino Sans", "Yu Gothic", sans-serif;
+      background: var(--bg);
     }
 
     body {
@@ -15,77 +30,269 @@
       flex-direction: column;
     }
 
-    h1 {
+    .app-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px 16px;
+      background: linear-gradient(120deg, #ffffff, #eef4ff);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .app-header h1 {
       margin: 0;
-      padding: 16px;
-      text-align: center;
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+
+    #global-status {
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .app-main {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 360px;
+      gap: 0;
+      min-height: 0;
+      flex: 1;
+    }
+
+    .map-column {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      border-right: 1px solid var(--border);
+      background: #fff;
+    }
+
+    .map-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--border);
+      background: #ffffff;
+    }
+
+    #search-form {
+      display: flex;
+      gap: 8px;
+      width: 100%;
+    }
+
+    #stop-search {
+      flex: 1;
+      min-width: 0;
+      padding: 9px 10px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 14px;
+    }
+
+    #search-submit {
+      border: 0;
+      border-radius: 8px;
+      padding: 0 14px;
+      font-size: 14px;
+      font-weight: 700;
+      color: #fff;
+      background: var(--accent);
+      cursor: pointer;
     }
 
     #map {
       flex: 1;
+      min-height: 300px;
     }
 
-    #route-info {
-      background: #f8f9fa;
-      border-top: 1px solid #d0d5dd;
-      padding: 16px;
-      font-size: 16px;
-      line-height: 1.6;
-      max-height: 220px;
-      overflow-y: auto;
+    .side-panel {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      background: var(--panel-bg);
     }
 
-    #route-info h2 {
-      margin: 0 0 8px;
-      font-size: 18px;
-      text-align: center;
+    .panel-head {
+      border-bottom: 1px solid var(--border);
+      padding: 14px 14px 10px;
     }
 
-    #route-info ul {
-      list-style: none;
-      margin: 0;
-      padding: 0;
+    .panel-head h2 {
+      margin: 0 0 10px;
+      font-size: 17px;
+      line-height: 1.4;
     }
 
-    #route-info li {
+    .date-row {
       display: flex;
       align-items: center;
       gap: 8px;
-      padding: 6px 0;
-      border-bottom: 1px solid #e4e7eb;
+      font-size: 13px;
+      color: var(--muted);
     }
 
-    #route-info li:last-child {
-      border-bottom: none;
+    #timetable-date {
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 8px;
+      font-size: 14px;
+      color: var(--text);
+      background: #fff;
+    }
+
+    .tab-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .tab-button {
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: #fff;
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 700;
+      padding: 8px 10px;
+      cursor: pointer;
+    }
+
+    .tab-button.active {
+      background: var(--accent-soft);
+      border-color: #b8cdf5;
+      color: #0a3a75;
+    }
+
+    .panel-body {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      padding: 10px 14px 14px;
+    }
+
+    #panel-status {
+      margin: 0 0 10px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    #panel-status.error {
+      color: var(--danger);
+    }
+
+    #timetable-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      border: 1px solid #e8ecf0;
+      border-radius: 10px;
+      overflow: hidden;
+      background: #fff;
+    }
+
+    #timetable-list li {
+      display: grid;
+      grid-template-columns: 76px minmax(0, 1fr);
+      gap: 10px;
+      padding: 10px;
+      border-bottom: 1px solid #edf1f5;
+    }
+
+    #timetable-list li:last-child {
+      border-bottom: 0;
+    }
+
+    .time-label {
+      font-variant-numeric: tabular-nums;
+      font-weight: 700;
+      color: #0a3a75;
+    }
+
+    .trip-meta {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      min-width: 0;
+    }
+
+    .route-name {
+      font-size: 13px;
+      color: var(--text);
+      font-weight: 700;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .headsign {
+      font-size: 12px;
+      color: var(--muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    details#route-info {
+      margin-top: 12px;
+      border: 1px solid #e8ecf0;
+      border-radius: 10px;
+      background: #fff;
+    }
+
+    details#route-info summary {
+      cursor: pointer;
+      padding: 10px;
+      font-size: 13px;
+      color: var(--muted);
+      font-weight: 700;
+    }
+
+    #route-info-list {
+      list-style: none;
+      margin: 0;
+      padding: 0 10px 10px;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+
+    #route-info-list li {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 4px 0;
+      font-size: 12px;
+      color: var(--muted);
     }
 
     .route-color {
-      width: 16px;
-      height: 16px;
-      border-radius: 4px;
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      border: 1px solid #ccd6e0;
       flex-shrink: 0;
-      border: 1px solid #cbd2d9;
-    }
-
-    .route-names {
-      display: flex;
-      flex-direction: column;
-    }
-
-    .route-short {
-      font-weight: bold;
-      font-size: 15px;
-    }
-
-    .route-long {
-      color: #475569;
-      font-size: 14px;
     }
 
     .leaflet-popup-content {
-      font-size: 18px;
+      font-size: 14px;
     }
-    </style>
+
+    @media (max-width: 900px) {
+      .app-main {
+        grid-template-columns: 1fr;
+        grid-template-rows: minmax(0, 1fr) 320px;
+      }
+
+      .map-column {
+        border-right: 0;
+        border-bottom: 1px solid var(--border);
+      }
+    }
+  </style>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js" integrity="sha512-pXAFeoDyAJ6Digw1k3D6Z0SqnX+0Gooy2cuglRez2oJ6TP2PzefDs2fzGEylh4G6dkprdOCi/hTyBC0bYKT1Fg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
@@ -93,8 +300,42 @@
   <script src="main.js" defer></script>
 </head>
 <body>
-  <h1>map_test</h1>
-  <div id="map"></div>
-  <section id="route-info" aria-live="polite" aria-label="バス路線情報"></section>
+  <header class="app-header">
+    <h1>金山駅周辺バス時刻表マップ</h1>
+    <div id="global-status" aria-live="polite"></div>
+  </header>
+  <main class="app-main">
+    <section class="map-column">
+      <div class="map-toolbar">
+        <form id="search-form" autocomplete="off">
+          <input id="stop-search" type="text" list="stop-suggestions" placeholder="停留所名または停留所IDで検索" aria-label="停留所検索" />
+          <datalist id="stop-suggestions"></datalist>
+          <button id="search-submit" type="submit">検索</button>
+        </form>
+      </div>
+      <div id="map" aria-label="地図"></div>
+    </section>
+    <aside class="side-panel" aria-label="停留所時刻表パネル">
+      <div class="panel-head">
+        <h2 id="selected-stop-name">停留所を選択してください</h2>
+        <div class="date-row">
+          <label for="timetable-date">対象日:</label>
+          <input id="timetable-date" type="date" />
+        </div>
+      </div>
+      <div class="tab-row" role="tablist" aria-label="時刻表表示モード">
+        <button id="tab-next" class="tab-button active" type="button" data-tab="next" role="tab" aria-selected="true">次の10件</button>
+        <button id="tab-all" class="tab-button" type="button" data-tab="all" role="tab" aria-selected="false">その日の全便</button>
+      </div>
+      <div class="panel-body">
+        <p id="panel-status" aria-live="polite">地図上の停留所を選択すると時刻表を表示します。</p>
+        <ul id="timetable-list"></ul>
+        <details id="route-info">
+          <summary>表示中のバス路線</summary>
+          <ul id="route-info-list"></ul>
+        </details>
+      </div>
+    </aside>
+  </main>
 </body>
 </html>
