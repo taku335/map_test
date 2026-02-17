@@ -14,6 +14,21 @@ const TARGET_RADIUS_METERS = 5000;
 const BUS_ROUTE_TYPE = '3';
 const NEXT_DEPARTURES_LIMIT = 10;
 const GTFS_FETCH_TIMEOUT_MS = 30000;
+const ERROR_CODES = Object.freeze({
+  GTFS_INIT_FAILED: 'GTFS_INIT_FAILED',
+  GTFS_ALL_SOURCES_FAILED: 'GTFS_ALL_SOURCES_FAILED',
+  GTFS_CKAN_HTTP: 'GTFS_CKAN_HTTP',
+  GTFS_CKAN_INVALID: 'GTFS_CKAN_INVALID',
+  GTFS_CKAN_NO_ZIP: 'GTFS_CKAN_NO_ZIP',
+  GTFS_ZIP_HTTP: 'GTFS_ZIP_HTTP',
+  GTFS_ZIP_INVALID: 'GTFS_ZIP_INVALID',
+  GTFS_FETCH_TIMEOUT: 'GTFS_FETCH_TIMEOUT',
+  GTFS_FETCH_NETWORK: 'GTFS_FETCH_NETWORK',
+  GTFS_FETCH_UNKNOWN: 'GTFS_FETCH_UNKNOWN',
+  GTFS_FILE_MISSING: 'GTFS_FILE_MISSING',
+  GTFS_CSV_PARSE: 'GTFS_CSV_PARSE',
+  UNKNOWN: 'UNKNOWN',
+});
 
 let appContext = null;
 
@@ -105,8 +120,13 @@ async function initMap() {
     setGlobalStatus(ui, `読込完了: 停留所 ${stopsInRadius.length}件 / ${routeSuffix}`);
     console.info('GTFS source URL:', sourceUrl);
   } catch (error) {
-    console.error('Failed to initialize app:', error);
-    const details = summarizeError(error);
+    const appError = toAppError(
+      error,
+      ERROR_CODES.GTFS_INIT_FAILED,
+      'GTFS初期化に失敗しました'
+    );
+    console.error('Failed to initialize app:', buildErrorReport(appError));
+    const details = summarizeError(appError);
     setGlobalStatus(ui, `GTFSデータの読み込みに失敗しました: ${details}`, true);
     setPanelStatus(ui, `時刻表を表示できません。${details}`, true);
   }
@@ -379,13 +399,26 @@ async function loadGtfsDataWithFallback() {
       const gtfsData = await loadGtfsData(url);
       return { gtfsData, sourceUrl: url, errors };
     } catch (error) {
-      const reason = summarizeError(error);
-      errors.push(`${url} (${reason})`);
-      console.warn('Failed to load GTFS source:', url, error);
+      const appError = toAppError(error, ERROR_CODES.GTFS_FETCH_UNKNOWN, 'GTFSソース読込失敗', {
+        url,
+      });
+      errors.push({
+        url,
+        code: appError.code,
+        message: appError.message,
+      });
+      console.warn('Failed to load GTFS source:', buildErrorReport(appError));
     }
   }
 
-  throw new Error(`GTFS取得に失敗しました。試行先: ${errors.join(' / ')}`);
+  const reasons = errors
+    .map((row) => `${row.url} [${row.code}] ${row.message}`)
+    .join(' / ');
+  throw createAppError(
+    ERROR_CODES.GTFS_ALL_SOURCES_FAILED,
+    `GTFS取得に失敗しました。試行先: ${reasons}`,
+    { attempts: errors }
+  );
 }
 
 async function resolveGtfsZipCandidates() {
@@ -420,13 +453,21 @@ async function resolveGtfsZipCandidates() {
 async function resolveLatestGtfsZipUrl() {
   const response = await fetchWithTimeout(CKAN_PACKAGE_SHOW_URL, GTFS_FETCH_TIMEOUT_MS);
   if (!response.ok) {
-    throw new Error(`CKAN metadata fetch failed: ${response.status}`);
+    throw createAppError(
+      ERROR_CODES.GTFS_CKAN_HTTP,
+      `CKANメタデータ取得失敗: HTTP ${response.status}`,
+      { url: CKAN_PACKAGE_SHOW_URL, status: response.status }
+    );
   }
 
   const payload = await response.json();
   const resources = payload?.result?.resources;
   if (!Array.isArray(resources)) {
-    throw new Error('Invalid CKAN response: resources not found');
+    throw createAppError(
+      ERROR_CODES.GTFS_CKAN_INVALID,
+      'CKANレスポンス不正: resourcesが見つかりません',
+      { url: CKAN_PACKAGE_SHOW_URL }
+    );
   }
 
   const zipResources = resources
@@ -442,7 +483,11 @@ async function resolveLatestGtfsZipUrl() {
     .sort((a, b) => getResourceTimestamp(b.resource) - getResourceTimestamp(a.resource));
 
   if (zipResources.length === 0) {
-    throw new Error('No ZIP resource found in CKAN dataset');
+    throw createAppError(
+      ERROR_CODES.GTFS_CKAN_NO_ZIP,
+      'CKANデータセットにZIPリソースがありません',
+      { url: CKAN_PACKAGE_SHOW_URL }
+    );
   }
 
   return zipResources[0].resolvedUrl;
@@ -507,13 +552,22 @@ async function loadGtfsData(url) {
 async function fetchGtfsZip(url) {
   const response = await fetchWithTimeout(url, GTFS_FETCH_TIMEOUT_MS);
   if (!response.ok) {
-    throw new Error(`Failed to download GTFS ZIP: ${response.status}`);
+    throw createAppError(
+      ERROR_CODES.GTFS_ZIP_HTTP,
+      `GTFS ZIPダウンロード失敗: HTTP ${response.status}`,
+      { url, status: response.status }
+    );
   }
   const blob = await response.blob();
   try {
     return await JSZip.loadAsync(blob);
   } catch (error) {
-    throw new Error(`Invalid GTFS ZIP: ${summarizeError(error)}`);
+    throw createAppError(
+      ERROR_CODES.GTFS_ZIP_INVALID,
+      `GTFS ZIP展開失敗: ${summarizeError(error)}`,
+      { url },
+      error
+    );
   }
 }
 
@@ -524,9 +578,27 @@ async function fetchWithTimeout(url, timeoutMs) {
     return await fetch(url, { signal: controller.signal });
   } catch (error) {
     if (error?.name === 'AbortError') {
-      throw new Error(`Request timed out after ${timeoutMs}ms`);
+      throw createAppError(
+        ERROR_CODES.GTFS_FETCH_TIMEOUT,
+        `GTFS通信タイムアウト: ${timeoutMs}ms`,
+        { url, timeoutMs },
+        error
+      );
     }
-    throw error;
+    if (error instanceof TypeError) {
+      throw createAppError(
+        ERROR_CODES.GTFS_FETCH_NETWORK,
+        `GTFS通信に失敗しました: ${error.message || 'Failed to fetch'}`,
+        { url },
+        error
+      );
+    }
+    throw createAppError(
+      ERROR_CODES.GTFS_FETCH_UNKNOWN,
+      `GTFS通信で未知のエラーが発生しました: ${summarizeError(error)}`,
+      { url },
+      error
+    );
   } finally {
     window.clearTimeout(timer);
   }
@@ -539,7 +611,11 @@ async function parseCsvFile(zip, filename, options = {}) {
       return [];
     }
     const available = Object.keys(zip.files).slice(0, 12).join(', ');
-    throw new Error(`${filename} is missing from GTFS feed (available: ${available})`);
+    throw createAppError(
+      ERROR_CODES.GTFS_FILE_MISSING,
+      `${filename} がGTFSフィード内に見つかりません`,
+      { filename, available }
+    );
   }
 
   const buffer = await file.async('arraybuffer');
@@ -550,7 +626,15 @@ async function parseCsvFile(zip, filename, options = {}) {
       header: true,
       skipEmptyLines: true,
       complete: ({ data }) => resolve(data),
-      error: (error) => reject(new Error(`${filename} parse error: ${summarizeError(error)}`)),
+      error: (error) =>
+        reject(
+          createAppError(
+            ERROR_CODES.GTFS_CSV_PARSE,
+            `${filename} のCSV解析に失敗しました: ${summarizeError(error)}`,
+            { filename },
+            error
+          )
+        ),
     });
   });
 }
@@ -591,16 +675,60 @@ function decodeCsvText(buffer) {
 }
 
 function summarizeError(error) {
-  if (!error) {
-    return '不明なエラー';
+  const appError = toAppError(error);
+  return `[${appError.code}] ${appError.message}`;
+}
+
+function createAppError(code, message, context = {}, cause = null) {
+  const error = new Error(message);
+  error.code = code || ERROR_CODES.UNKNOWN;
+  if (context && Object.keys(context).length > 0) {
+    error.context = context;
   }
-  if (typeof error === 'string') {
+  if (cause) {
+    error.cause = cause;
+  }
+  return error;
+}
+
+function toAppError(error, fallbackCode = ERROR_CODES.UNKNOWN, fallbackMessage = '不明なエラー', context = {}) {
+  if (error && typeof error === 'object' && typeof error.code === 'string' && error.message) {
     return error;
   }
-  if (error.message) {
-    return error.message;
+
+  if (typeof error === 'string') {
+    return createAppError(fallbackCode, error, context);
   }
-  return String(error);
+
+  if (error instanceof Error) {
+    return createAppError(fallbackCode, error.message || fallbackMessage, context, error);
+  }
+
+  return createAppError(fallbackCode, fallbackMessage, context, error || null);
+}
+
+function buildErrorReport(error) {
+  const appError = toAppError(error);
+  const report = {
+    code: appError.code,
+    message: appError.message,
+  };
+
+  if (appError.context) {
+    report.context = appError.context;
+  }
+
+  const cause = appError.cause;
+  if (cause instanceof Error) {
+    report.cause = {
+      name: cause.name,
+      message: cause.message,
+    };
+  } else if (cause) {
+    report.cause = String(cause);
+  }
+
+  return report;
 }
 
 function filterBusData(data) {
